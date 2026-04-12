@@ -1,0 +1,1 @@
+{"name": "reviewer", "description": "Revisa el código generado para asegurar calidad.", "input": { "type": "object" }, "output": { "type": "object" }}
