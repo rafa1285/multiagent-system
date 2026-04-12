@@ -1,0 +1,6 @@
+{
+  "name": "deployer",
+  "description": "Despliega el proyecto backend generado.",
+  "input": { "type": "object" },
+  "output": { "type": "object" }
+}
