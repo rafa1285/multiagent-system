@@ -4,5 +4,11 @@
   "settings": {
     "logLevel": "info",
     "enableTracing": false
+  },
+  "repositories": {
+    "backendTemplate": {
+      "description": "Repositorio plantilla para generar proyectos backend.",
+      "path": "../backend-template"
+    }
   }
 }
