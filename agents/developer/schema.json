@@ -1,0 +1,6 @@
+{
+  "name": "developer",
+  "description": "Genera código a partir de los planes definidos por el planner.",
+  "input": { "type": "object" },
+  "output": { "type": "object" }
+}
