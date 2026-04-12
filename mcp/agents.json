@@ -1,0 +1,8 @@
+{
+  "agents": [
+    { "name": "planner", "path": "agents/planner/index.js" },
+    { "name": "developer", "path": "agents/developer/index.js" },
+    { "name": "reviewer", "path": "agents/reviewer/index.js" },
+    { "name": "deployer", "path": "agents/deployer/index.js" }
+  ]
+}
