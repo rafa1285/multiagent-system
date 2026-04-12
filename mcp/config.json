@@ -1,0 +1,8 @@
+{
+  "description": "Configuración base del sistema MCP.",
+  "version": "0.1.0",
+  "settings": {
+    "logLevel": "info",
+    "enableTracing": false
+  }
+}
