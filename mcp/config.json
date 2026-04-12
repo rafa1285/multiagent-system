@@ -10,5 +10,10 @@
       "description": "Repositorio plantilla para generar proyectos backend.",
       "path": "../backend-template"
     }
+  },
+  "paths": {
+    "agentsRoot": "./agents",
+    "backendTemplate": "../backend-template",
+    "orchestrator": "../orchestrator"
   }
 }
