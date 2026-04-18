@@ -95,6 +95,36 @@ Interactive API docs: http://localhost:8000/docs
 
 ---
 
+## Deploy on Render
+
+This repository includes a Render Blueprint file:
+
+- `render.yaml`
+
+### Quick deploy
+
+1. In Render, create a new Blueprint service from your repo.
+2. Set Root Directory to `multiagent-system` if Render asks for it.
+3. Apply the Blueprint and deploy.
+4. Confirm health endpoint:
+  - `GET /`
+5. Confirm docs endpoint:
+  - `GET /docs`
+
+### Use this URL in n8n
+
+After deploy, copy the public URL of this service and set it as:
+
+- `MULTIAGENT_API_BASE_URL`
+
+Where to set it:
+
+1. Render Environment for the `n8n-service`
+2. Local file for MCP diagnostics:
+  - `orchestrator/config/n8n-mcp.env`
+
+---
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -105,6 +135,10 @@ Interactive API docs: http://localhost:8000/docs
 | `LLM_API_KEY` | _(empty)_ | API key for cloud providers (e.g. Claude) |
 | `HOST` | `0.0.0.0` | Bind address for the HTTP server |
 | `PORT` | `8000` | Port for the HTTP server |
+
+Local template:
+
+- `.env.example`
 
 ---
 
