@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from agents.planner.agent import PlannerAgent
-from core.run_state import ensure_run, update_stage
+from core.run_state import StageRetryLimitExceededError, finish_stage_error, finish_stage_success, start_stage
 from providers.open_source import OpenSourceLLMProvider
 
 router = APIRouter(prefix="/agents/planner", tags=["Planner"])
@@ -42,13 +42,16 @@ def run_planner(request: PlannerRequest) -> PlannerResponse:
     This stub always uses the open-source LLM provider.  Swap the provider
     instance here (or inject it) when adding Claude support.
     """
-    run_id = ensure_run(request.run_id)
-    update_stage(
-        run_id,
-        "planner",
-        "running",
-        input_payload={"task": request.task},
-    )
+    try:
+        attempt = start_stage(request.run_id, "planner", {"task": request.task})
+    except StageRetryLimitExceededError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    if attempt["cached"]:
+        cached = attempt["output_payload"]
+        return PlannerResponse(**cached)
+
+    run_id = attempt["run_id"]
 
     # TODO: inject the provider via dependency injection.
     llm = OpenSourceLLMProvider()
@@ -56,17 +59,12 @@ def run_planner(request: PlannerRequest) -> PlannerResponse:
     try:
         result = agent.run(task=request.task)
     except Exception as exc:
-        update_stage(run_id, "planner", "error", error=str(exc))
+        finish_stage_error(run_id, "planner", attempt["attempt_id"], str(exc))
         raise HTTPException(
             status_code=500,
             detail={"run_id": run_id, "stage": "planner", "error": str(exc)},
         ) from exc
 
     result["run_id"] = run_id
-    update_stage(
-        run_id,
-        "planner",
-        "success",
-        output_payload={"agent": result.get("agent")},
-    )
+    finish_stage_success(run_id, "planner", attempt["attempt_id"], result)
     return PlannerResponse(**result)

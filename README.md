@@ -162,6 +162,30 @@ Per-stage lifecycle tracked by the API:
 
 When the `deployer` stage succeeds, the run status transitions to `completed`.
 
+## Persistent State Storage
+
+Run state is now persisted outside process memory.
+
+- Production: Postgres via `DATABASE_URL`
+- Local development fallback: SQLite via `RUN_STATE_SQLITE_PATH`
+
+Render blueprint provisioning:
+
+- Web service: `multiagent-system`
+- Database: `multiagent-system-db`
+
+This prevents run history from disappearing when the service restarts or is redeployed.
+
+## Idempotent Stage Retries
+
+Each stage stores attempts per `run_id` and input payload hash.
+
+- Same `run_id` + same stage + same input after a successful attempt: returns cached result instead of re-running the agent
+- Same `run_id` + same stage after an error: creates a new attempt until `RUN_STAGE_MAX_ATTEMPTS`
+- Default retry budget: `3`
+
+This gives you deterministic retries without duplicating completed work.
+
 ---
 
 ## Roadmap

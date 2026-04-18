@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from typing import Any, Optional
 
 from agents.developer.agent import DeveloperAgent
-from core.run_state import ensure_run, update_stage
+from core.run_state import StageRetryLimitExceededError, finish_stage_error, finish_stage_success, start_stage
 from providers.open_source import OpenSourceLLMProvider
 
 router = APIRouter(prefix="/agents/developer", tags=["Developer"])
@@ -42,8 +42,16 @@ def run_developer(request: DeveloperRequest) -> DeveloperResponse:
     This stub always uses the open-source LLM provider.  Swap the provider
     instance here (or inject it) when adding Claude support.
     """
-    run_id = ensure_run(request.run_id)
-    update_stage(run_id, "developer", "running", input_payload={"plan": request.plan})
+    try:
+        attempt = start_stage(request.run_id, "developer", {"plan": request.plan})
+    except StageRetryLimitExceededError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    if attempt["cached"]:
+        cached = attempt["output_payload"]
+        return DeveloperResponse(**cached)
+
+    run_id = attempt["run_id"]
 
     # TODO: inject the provider via dependency injection.
     llm = OpenSourceLLMProvider()
@@ -51,17 +59,12 @@ def run_developer(request: DeveloperRequest) -> DeveloperResponse:
     try:
         result = agent.run(plan=request.plan)
     except Exception as exc:
-        update_stage(run_id, "developer", "error", error=str(exc))
+        finish_stage_error(run_id, "developer", attempt["attempt_id"], str(exc))
         raise HTTPException(
             status_code=500,
             detail={"run_id": run_id, "stage": "developer", "error": str(exc)},
         ) from exc
 
     result["run_id"] = run_id
-    update_stage(
-        run_id,
-        "developer",
-        "success",
-        output_payload={"agent": result.get("agent")},
-    )
+    finish_stage_success(run_id, "developer", attempt["attempt_id"], result)
     return DeveloperResponse(**result)

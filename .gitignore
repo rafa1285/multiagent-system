@@ -17,3 +17,6 @@ build/
 .env
 .env.*
 !.env.example
+
+# Local persistent state
+data/

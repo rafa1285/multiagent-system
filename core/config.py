@@ -29,3 +29,11 @@ LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
 # ---------------------------------------------------------------------------
 HOST: str = os.getenv("HOST", "0.0.0.0")
 PORT: int = int(os.getenv("PORT", "8000"))
+
+# ---------------------------------------------------------------------------
+# Run state persistence
+# ---------------------------------------------------------------------------
+DATABASE_URL: str = os.getenv("DATABASE_URL", "").strip()
+RUN_STATE_DATABASE_URL: str = os.getenv("RUN_STATE_DATABASE_URL", DATABASE_URL).strip()
+RUN_STATE_SQLITE_PATH: str = os.getenv("RUN_STATE_SQLITE_PATH", "data/run_state.db")
+RUN_STAGE_MAX_ATTEMPTS: int = int(os.getenv("RUN_STAGE_MAX_ATTEMPTS", "3"))
