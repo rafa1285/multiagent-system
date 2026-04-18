@@ -1,6 +1,30 @@
 {
   "name": "deployer",
   "description": "Despliega el proyecto backend generado.",
-  "input": { "type": "object" },
-  "output": { "type": "object" }
+  "input": {
+    "type": "object",
+    "properties": {
+      "files": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" },
+            "content": { "type": "string" }
+          },
+          "required": ["path", "content"]
+        }
+      },
+      "approved": { "type": "boolean" }
+    },
+    "required": ["files", "approved"]
+  },
+  "output": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "message": { "type": "string" }
+    },
+    "required": ["success", "message"]
+  }
 }

@@ -1,1 +1,36 @@
-{"name":"planner","description":"Genera planes y tareas a partir de una descripción de alto nivel.","input":{"type":"object"},"output":{"type":"object"}}
+{
+  "name": "planner",
+  "description": "Genera un plan estructurado a partir de una descripción de alto nivel.",
+  "input": {
+    "type": "object",
+    "properties": {
+      "description": { "type": "string" }
+    },
+    "required": ["description"]
+  },
+  "output": {
+    "type": "object",
+    "properties": {
+      "plan": {
+        "type": "object",
+        "properties": {
+          "summary": { "type": "string" },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "title": { "type": "string" },
+                "details": { "type": "string" }
+              },
+              "required": ["id", "title"]
+            }
+          }
+        },
+        "required": ["summary", "tasks"]
+      }
+    },
+    "required": ["plan"]
+  }
+}

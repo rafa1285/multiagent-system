@@ -3,12 +3,25 @@
   "version": "0.1.0",
   "settings": {
     "logLevel": "info",
-    "enableTracing": false
+    "enableTracing": false,
+    "enableWorkspaceContext": true
   },
   "repositories": {
+    "multiagentSystem": {
+      "description": "Repositorio principal del sistema multiagente.",
+      "path": "."
+    },
     "backendTemplate": {
       "description": "Repositorio plantilla para generar proyectos backend.",
       "path": "../backend-template"
+    },
+    "orchestrator": {
+      "description": "Repositorio del orquestador n8n y flujos MCP.",
+      "path": "../orchestrator"
+    },
+    "agentTools": {
+      "description": "Repositorio de utilidades compartidas para agentes.",
+      "path": "../agent-tools"
     }
   },
   "paths": {

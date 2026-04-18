@@ -1,1 +1,34 @@
-{"name": "reviewer", "description": "Revisa el código generado para asegurar calidad.", "input": { "type": "object" }, "output": { "type": "object" }}
+{
+  "name": "reviewer",
+  "description": "Revisa el código generado para asegurar calidad.",
+  "input": {
+    "type": "object",
+    "properties": {
+      "files": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" },
+            "content": { "type": "string" }
+          },
+          "required": ["path", "content"]
+        }
+      }
+    },
+    "required": ["files"]
+  },
+  "output": {
+    "type": "object",
+    "properties": {
+      "approved": { "type": "boolean" },
+      "issues": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": ["approved", "issues"]
+  }
+}

@@ -1,6 +1,28 @@
 {
   "name": "developer",
-  "description": "Genera código a partir de los planes definidos por el planner.",
-  "input": { "type": "object" },
-  "output": { "type": "object" }
+  "description": "Genera código a partir del plan del planner.",
+  "input": {
+    "type": "object",
+    "properties": {
+      "plan": { "type": "object" }
+    },
+    "required": ["plan"]
+  },
+  "output": {
+    "type": "object",
+    "properties": {
+      "files": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" },
+            "content": { "type": "string" }
+          },
+          "required": ["path", "content"]
+        }
+      }
+    },
+    "required": ["files"]
+  }
 }

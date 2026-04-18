@@ -59,7 +59,8 @@ multiagent-system/
 │   └── open_source.py              # Open-source / self-hosted model stub
 │
 └── core/
-    └── config.py                   # App-wide settings (env-var driven)
+  ├── config.py                   # App-wide settings (env-var driven)
+  └── run_state.py                # In-memory run tracking state machine
 ```
 
 ---
@@ -139,6 +140,27 @@ Where to set it:
 Local template:
 
 - `.env.example`
+
+---
+
+## Run Tracking (run_id)
+
+All agent endpoints now accept an optional `run_id` and include it in their
+responses. If omitted, the backend creates one automatically.
+
+State endpoints:
+
+- `POST /runs` creates a new run id
+- `GET /runs/{run_id}` returns per-stage status and event history
+- `GET /runs?limit=20` lists recent runs
+
+Per-stage lifecycle tracked by the API:
+
+- `running`
+- `success`
+- `error`
+
+When the `deployer` stage succeeds, the run status transitions to `completed`.
 
 ---
 
