@@ -169,10 +169,13 @@ Run state is now persisted outside process memory.
 - Production: Postgres via `DATABASE_URL`
 - Local development fallback: SQLite via `RUN_STATE_SQLITE_PATH`
 
-Render blueprint provisioning:
+Current free-tier setup:
 
 - Web service: `multiagent-system`
-- Database: `multiagent-system-db`
+- Shared database: existing `n8n-db` (same Render workspace)
+
+When you upgrade and can provision a second database, migrate `DATABASE_URL`
+to a dedicated `multiagent-system-db`.
 
 This prevents run history from disappearing when the service restarts or is redeployed.
 
