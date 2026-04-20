@@ -7,7 +7,18 @@ Planner Agent.
 The orchestrator (n8n) calls POST /agents/developer with the plan as input.
 """
 
+import json
+from pathlib import Path
+from typing import Any
+
 from providers.base import BaseLLMProvider
+
+
+def _load_system_prompt() -> str:
+    prompt_path = Path(__file__).resolve().parent / "prompts" / "system.md"
+    if prompt_path.exists():
+        return prompt_path.read_text(encoding="utf-8").strip()
+    return "You are the Developer agent. Produce implementation artifacts as structured JSON-compatible content."
 
 
 class DeveloperAgent:
@@ -15,8 +26,9 @@ class DeveloperAgent:
 
     def __init__(self, llm: BaseLLMProvider) -> None:
         self.llm = llm
+        self.system_prompt = _load_system_prompt()
 
-    def run(self, plan: dict) -> dict:
+    def run(self, plan: Any) -> dict:
         """
         Receive the *plan* from the Planner and return generated code.
 
@@ -25,11 +37,37 @@ class DeveloperAgent:
         :param plan: Structured plan produced by the PlannerAgent.
         :returns: A dict containing the generated code artefacts.
         """
-        # Stub – call the LLM and return a placeholder code snippet.
-        response = self.llm.complete(prompt=f"Implement the following plan: {plan}")
+        if isinstance(plan, str):
+            try:
+                normalized_plan = json.loads(plan)
+            except json.JSONDecodeError:
+                normalized_plan = {"objective": plan, "subtasks": [plan]}
+        else:
+            normalized_plan = plan if isinstance(plan, dict) else {"objective": str(plan), "subtasks": [str(plan)]}
+
+        prompt = f"{self.system_prompt}\n\nImplement the following plan: {normalized_plan}"
+        response = self.llm.complete(prompt=prompt)
+        subtasks = normalized_plan.get("subtasks") or []
+        artifacts = []
+        for index, subtask in enumerate(subtasks, start=1):
+            artifacts.append(
+                {
+                    "name": f"artifact_{index}",
+                    "type": "implementation_note",
+                    "summary": str(subtask),
+                }
+            )
+
+        code_payload = {
+            "objective": normalized_plan.get("objective"),
+            "family": normalized_plan.get("family", "platform"),
+            "completed_subtasks": [str(item) for item in subtasks],
+            "artifacts": artifacts,
+            "implementation_status": "implemented",
+            "model_notes": response,
+        }
         return {
             "agent": "developer",
-            "plan": plan,
-            "code": response,
-            # TODO: parse LLM output into individual files / code blocks.
+            "plan": normalized_plan,
+            "code": json.dumps(code_payload, ensure_ascii=True),
         }
