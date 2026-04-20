@@ -9,7 +9,11 @@ the next agent in the pipeline.
 """
 
 import json
+import os
 from pathlib import Path
+from typing import Any, Dict, List
+
+import yaml
 
 from providers.base import BaseLLMProvider
 
@@ -19,6 +23,34 @@ def _load_system_prompt() -> str:
     if prompt_path.exists():
         return prompt_path.read_text(encoding="utf-8").strip()
     return "You are the Planner agent. Return a structured plan with objective, family, subtasks and validation."
+
+
+def _default_projects_path() -> Path:
+    workspace_root = Path(__file__).resolve().parents[3]
+    return workspace_root / "orchestrator" / "config" / "projects.yaml"
+
+
+def _load_projects_map() -> Dict[str, Any]:
+    configured = os.getenv("PROJECTS_MAP_PATH", "").strip()
+    path = Path(configured).resolve() if configured else _default_projects_path()
+    if not path.exists():
+        return {"path": str(path), "projects": []}
+
+    loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    projects = loaded.get("projects") if isinstance(loaded, dict) else []
+    if not isinstance(projects, list):
+        projects = []
+    return {"path": str(path), "projects": projects}
+
+
+def _match_projects(task_text: str, projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    lowered = task_text.lower()
+    matches: List[Dict[str, Any]] = []
+    for project in projects:
+        name = str(project.get("name", "")).strip()
+        if name and name.lower() in lowered:
+            matches.append(project)
+    return matches
 
 
 class PlannerAgent:
@@ -39,6 +71,8 @@ class PlannerAgent:
         """
         prompt = f"{self.system_prompt}\n\nCreate a development plan for: {task}"
         response = self.llm.complete(prompt=prompt)
+        projects_map = _load_projects_map()
+        matched_projects = _match_projects(task, projects_map.get("projects", []))
         lowered = task.lower()
         if any(token in lowered for token in ("auth", "api key", "credencial", "secret", "seguridad")):
             family = "security"
@@ -93,6 +127,11 @@ class PlannerAgent:
             "objective": task,
             "family": family,
             "subtasks": subtasks,
+            "project_context": {
+                "projects_map_path": projects_map.get("path"),
+                "known_projects": [item.get("name") for item in projects_map.get("projects", [])],
+                "matched_projects": matched_projects,
+            },
             "validation": [
                 "La implementacion debe dejar evidencia tecnica verificable.",
                 "No se cierra Jira si el flujo principal no responde correctamente.",
