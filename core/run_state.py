@@ -54,14 +54,23 @@ class _Session:
             return query.replace("?", "%s")
         return query
 
+    def _cursor(self) -> Any:
+        return self.connection.cursor()
+
     def execute(self, query: str, params: Optional[List[Any]] = None) -> None:
-        with self.connection.cursor() as cursor:
+        cursor = self._cursor()
+        try:
             cursor.execute(self._query(query), params or [])
+        finally:
+            cursor.close()
 
     def fetchone(self, query: str, params: Optional[List[Any]] = None) -> Optional[Dict[str, Any]]:
-        with self.connection.cursor() as cursor:
+        cursor = self._cursor()
+        try:
             cursor.execute(self._query(query), params or [])
             row = cursor.fetchone()
+        finally:
+            cursor.close()
         if row is None:
             return None
         if self.backend == "sqlite":
@@ -69,9 +78,12 @@ class _Session:
         return row
 
     def fetchall(self, query: str, params: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
-        with self.connection.cursor() as cursor:
+        cursor = self._cursor()
+        try:
             cursor.execute(self._query(query), params or [])
             rows = cursor.fetchall()
+        finally:
+            cursor.close()
         if self.backend == "sqlite":
             return [dict(row) for row in rows]
         return rows

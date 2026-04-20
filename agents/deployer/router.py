@@ -6,15 +6,17 @@ Called by: n8n orchestrator (receives output from Reviewer Agent)
 """
 
 from fastapi import APIRouter
+from fastapi import Depends
 from fastapi import HTTPException
 from pydantic import BaseModel
 from typing import Any, Optional
 
 from agents.deployer.agent import DeployerAgent
+from core.auth import require_api_key
 from core.run_state import StageRetryLimitExceededError, finish_stage_error, finish_stage_success, start_stage
 from providers.open_source import OpenSourceLLMProvider
 
-router = APIRouter(prefix="/agents/deployer", tags=["Deployer"])
+router = APIRouter(prefix="/agents/deployer", tags=["Deployer"], dependencies=[Depends(require_api_key)])
 
 
 class DeployerRequest(BaseModel):

@@ -6,15 +6,17 @@ Called by: n8n orchestrator (receives output from Planner Agent)
 """
 
 from fastapi import APIRouter
+from fastapi import Depends
 from fastapi import HTTPException
 from pydantic import BaseModel
 from typing import Any, Optional
 
 from agents.developer.agent import DeveloperAgent
+from core.auth import require_api_key
 from core.run_state import StageRetryLimitExceededError, finish_stage_error, finish_stage_success, start_stage
 from providers.open_source import OpenSourceLLMProvider
 
-router = APIRouter(prefix="/agents/developer", tags=["Developer"])
+router = APIRouter(prefix="/agents/developer", tags=["Developer"], dependencies=[Depends(require_api_key)])
 
 
 class DeveloperRequest(BaseModel):

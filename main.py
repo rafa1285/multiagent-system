@@ -21,13 +21,14 @@ Interactive API docs are available at http://localhost:8000/docs once the
 server is running.
 """
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 from agents.planner.router import router as planner_router
 from agents.developer.router import router as developer_router
 from agents.reviewer.router import router as reviewer_router
 from agents.deployer.router import router as deployer_router
+from core.auth import require_api_key
 from core.run_state import ensure_run, get_run, list_runs
 
 app = FastAPI(
@@ -60,14 +61,14 @@ class RunCreateResponse(BaseModel):
 
 
 @app.post("/runs", tags=["Runs"], response_model=RunCreateResponse)
-def create_run() -> RunCreateResponse:
+def create_run(_: None = Depends(require_api_key)) -> RunCreateResponse:
     """Create a new run id for an execution pipeline."""
     run_id = ensure_run()
     return RunCreateResponse(run_id=run_id, status="created")
 
 
 @app.get("/runs/{run_id}", tags=["Runs"])
-def get_run_status(run_id: str) -> dict:
+def get_run_status(run_id: str, _: None = Depends(require_api_key)) -> dict:
     """Get run state and per-stage details."""
     run = get_run(run_id)
     if not run:
@@ -76,6 +77,6 @@ def get_run_status(run_id: str) -> dict:
 
 
 @app.get("/runs", tags=["Runs"])
-def list_run_status(limit: int = Query(default=20, ge=1, le=200)) -> dict:
+def list_run_status(limit: int = Query(default=20, ge=1, le=200), _: None = Depends(require_api_key)) -> dict:
     """List recent runs."""
     return {"items": list_runs(limit=limit)}
