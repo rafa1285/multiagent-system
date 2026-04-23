@@ -21,7 +21,10 @@ Interactive API docs are available at http://localhost:8000/docs once the
 server is running.
 """
 
+from pathlib import Path
+
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from agents.planner.router import router as planner_router
@@ -53,6 +56,15 @@ app.include_router(deployer_router)
 def health_check() -> dict:
     """Simple health-check endpoint."""
     return {"status": "ok", "service": "multiagent-system"}
+
+
+@app.get("/generated-apps/{run_id}", tags=["Generated Apps"], response_class=HTMLResponse)
+def get_generated_app(run_id: str) -> HTMLResponse:
+    """Serve a generated login+CRUD app materialized by the Deployer stage."""
+    app_file = Path(__file__).resolve().parent / "generated_apps" / f"{run_id}.html"
+    if not app_file.exists():
+        raise HTTPException(status_code=404, detail=f"generated app not found for run_id: {run_id}")
+    return HTMLResponse(content=app_file.read_text(encoding="utf-8"))
 
 
 class RunCreateResponse(BaseModel):

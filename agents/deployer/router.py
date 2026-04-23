@@ -59,7 +59,7 @@ def run_deployer(request: DeployerRequest) -> DeployerResponse:
     llm = get_llm_provider()
     agent = DeployerAgent(llm=llm)
     try:
-        result = agent.run(review=request.review)
+        result = agent.run(review=request.review, run_id=run_id)
     except Exception as exc:
         finish_stage_error(run_id, "deployer", attempt["attempt_id"], str(exc))
         raise HTTPException(
