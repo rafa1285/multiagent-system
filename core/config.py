@@ -11,9 +11,8 @@ import os
 # ---------------------------------------------------------------------------
 # LLM Provider
 # ---------------------------------------------------------------------------
-# Which LLM provider to use.  Currently only "open_source" is implemented;
-# set to "claude" when the Anthropic integration is added.
-LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "open_source")
+# Which LLM provider to use: "ollama" (default, self-hosted), "openai", or "groq".
+LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")
 
 # Model name passed through to the active provider.
 LLM_MODEL: str = os.getenv("LLM_MODEL", "mistral")

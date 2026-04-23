@@ -14,7 +14,7 @@ from typing import Optional
 from agents.planner.agent import PlannerAgent
 from core.auth import require_api_key
 from core.run_state import StageRetryLimitExceededError, finish_stage_error, finish_stage_success, start_stage
-from providers.open_source import OpenSourceLLMProvider
+from providers import get_llm_provider
 
 router = APIRouter(prefix="/agents/planner", tags=["Planner"], dependencies=[Depends(require_api_key)])
 
@@ -55,8 +55,7 @@ def run_planner(request: PlannerRequest) -> PlannerResponse:
 
     run_id = attempt["run_id"]
 
-    # TODO: inject the provider via dependency injection.
-    llm = OpenSourceLLMProvider()
+    llm = get_llm_provider()
     agent = PlannerAgent(llm=llm)
     try:
         result = agent.run(task=request.task)

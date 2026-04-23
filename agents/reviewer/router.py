@@ -14,7 +14,7 @@ from typing import Any, Optional
 from agents.reviewer.agent import ReviewerAgent
 from core.auth import require_api_key
 from core.run_state import StageRetryLimitExceededError, finish_stage_error, finish_stage_success, set_run_status, start_stage
-from providers.open_source import OpenSourceLLMProvider
+from providers import get_llm_provider
 
 router = APIRouter(prefix="/agents/reviewer", tags=["Reviewer"], dependencies=[Depends(require_api_key)])
 
@@ -56,8 +56,7 @@ def run_reviewer(request: ReviewerRequest) -> ReviewerResponse:
 
     run_id = attempt["run_id"]
 
-    # TODO: inject the provider via dependency injection.
-    llm = OpenSourceLLMProvider()
+    llm = get_llm_provider()
     agent = ReviewerAgent(llm=llm)
     try:
         result = agent.run(code=request.code)

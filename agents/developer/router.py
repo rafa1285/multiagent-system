@@ -14,7 +14,7 @@ from typing import Any, Optional
 from agents.developer.agent import DeveloperAgent
 from core.auth import require_api_key
 from core.run_state import StageRetryLimitExceededError, finish_stage_error, finish_stage_success, start_stage
-from providers.open_source import OpenSourceLLMProvider
+from providers import get_llm_provider
 
 router = APIRouter(prefix="/agents/developer", tags=["Developer"], dependencies=[Depends(require_api_key)])
 
@@ -55,8 +55,7 @@ def run_developer(request: DeveloperRequest) -> DeveloperResponse:
 
     run_id = attempt["run_id"]
 
-    # TODO: inject the provider via dependency injection.
-    llm = OpenSourceLLMProvider()
+    llm = get_llm_provider()
     agent = DeveloperAgent(llm=llm)
     try:
         result = agent.run(plan=request.plan)

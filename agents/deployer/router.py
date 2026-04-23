@@ -14,7 +14,7 @@ from typing import Any, Optional
 from agents.deployer.agent import DeployerAgent
 from core.auth import require_api_key
 from core.run_state import StageRetryLimitExceededError, finish_stage_error, finish_stage_success, start_stage
-from providers.open_source import OpenSourceLLMProvider
+from providers import get_llm_provider
 
 router = APIRouter(prefix="/agents/deployer", tags=["Deployer"], dependencies=[Depends(require_api_key)])
 
@@ -56,8 +56,7 @@ def run_deployer(request: DeployerRequest) -> DeployerResponse:
 
     run_id = attempt["run_id"]
 
-    # TODO: inject the provider via dependency injection.
-    llm = OpenSourceLLMProvider()
+    llm = get_llm_provider()
     agent = DeployerAgent(llm=llm)
     try:
         result = agent.run(review=request.review)
