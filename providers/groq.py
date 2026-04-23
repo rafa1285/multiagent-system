@@ -6,6 +6,7 @@ Free tier available for Llama 3, Mixtral, and other models.
 """
 
 import httpx
+import time
 from providers.base import BaseLLMProvider
 from core import config
 
@@ -42,16 +43,34 @@ class GroqLLMProvider(BaseLLMProvider):
             "Content-Type": "application/json",
         }
 
-        try:
-            response = httpx.post(
-                f"{self.base_url}/chat/completions",
-                json=payload,
-                headers=headers,
-                timeout=self.timeout,
-            )
-            response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise RuntimeError(f"Groq API request failed: {exc}") from exc
+        max_attempts = int(kwargs.get("max_attempts", 4))
+        response = None
+        last_exc = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = httpx.post(
+                    f"{self.base_url}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
+                break
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                status = exc.response.status_code if exc.response is not None else None
+                retryable = status == 429 or (status is not None and 500 <= status <= 599)
+                if not retryable or attempt == max_attempts:
+                    raise RuntimeError(f"Groq API request failed: {exc}") from exc
+                time.sleep(min(8.0, 0.75 * (2 ** (attempt - 1))))
+            except httpx.HTTPError as exc:
+                last_exc = exc
+                if attempt == max_attempts:
+                    raise RuntimeError(f"Groq API request failed: {exc}") from exc
+                time.sleep(min(8.0, 0.75 * (2 ** (attempt - 1))))
+
+        if response is None:
+            raise RuntimeError(f"Groq API request failed after retries: {last_exc}")
 
         data = response.json()
         if not isinstance(data, dict):
