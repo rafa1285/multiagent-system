@@ -69,8 +69,12 @@ class PlannerAgent:
         :param task: Natural-language description of what needs to be built.
         :returns: A dict containing the generated plan (steps, priorities, …).
         """
-        prompt = f"{self.system_prompt}\n\nCreate a development plan for: {task}"
-        response = self.llm.complete(prompt=prompt)
+        prompt = (
+            f"{self.system_prompt}\n\n"
+            f"Create a concise development plan for: {task}\n"
+            "Keep the answer short and practical."
+        )
+        response = self.llm.complete(prompt=prompt, temperature=0.2, max_tokens=320)
         projects_map = _load_projects_map()
         matched_projects = _match_projects(task, projects_map.get("projects", []))
         lowered = task.lower()
@@ -137,7 +141,7 @@ class PlannerAgent:
                 "No se cierra Jira si el flujo principal no responde correctamente.",
                 "El reviewer debe dejar veredicto aprobatorio para continuar.",
             ],
-            "model_notes": response,
+            "model_notes": response[:1200],
         }
         return {
             "agent": "planner",

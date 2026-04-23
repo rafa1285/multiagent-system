@@ -120,8 +120,17 @@ class DeployerAgent:
         else:
             normalized_review = review if isinstance(review, dict) else {"approved": False, "raw": str(review)}
 
-        prompt = f"{self.system_prompt}\n\nGenerate deployment steps for: {normalized_review}"
-        response = self.llm.complete(prompt=prompt)
+        prompt_review = {
+            "approved": bool(normalized_review.get("approved")),
+            "summary": normalized_review.get("summary"),
+            "findings": normalized_review.get("findings") or [],
+        }
+        prompt = (
+            f"{self.system_prompt}\n\n"
+            f"Generate deployment steps for: {prompt_review}\n"
+            "Keep output concise and operational."
+        )
+        response = self.llm.complete(prompt=prompt, temperature=0.2, max_tokens=220)
         approved = bool(normalized_review.get("approved"))
         task_id = _extract_task_id(normalized_review)
         github_repo: Optional[Dict[str, Any]] = None
@@ -137,7 +146,7 @@ class DeployerAgent:
                 "Autorizar cierre Jira solo con evidencia positiva",
             ],
             "github_repo": github_repo,
-            "model_notes": response,
+            "model_notes": response[:1000],
         }
         return {
             "agent": "deployer",

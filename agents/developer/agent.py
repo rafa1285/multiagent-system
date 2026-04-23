@@ -45,8 +45,18 @@ class DeveloperAgent:
         else:
             normalized_plan = plan if isinstance(plan, dict) else {"objective": str(plan), "subtasks": [str(plan)]}
 
-        prompt = f"{self.system_prompt}\n\nImplement the following plan: {normalized_plan}"
-        response = self.llm.complete(prompt=prompt)
+        prompt_plan = {
+            "objective": normalized_plan.get("objective"),
+            "family": normalized_plan.get("family", "platform"),
+            "subtasks": normalized_plan.get("subtasks") or [],
+            "validation": normalized_plan.get("validation") or [],
+        }
+        prompt = (
+            f"{self.system_prompt}\n\n"
+            f"Implement the following plan as concise execution notes: {prompt_plan}\n"
+            "Avoid long prose."
+        )
+        response = self.llm.complete(prompt=prompt, temperature=0.2, max_tokens=420)
         subtasks = normalized_plan.get("subtasks") or []
         artifacts = []
         for index, subtask in enumerate(subtasks, start=1):
@@ -64,7 +74,7 @@ class DeveloperAgent:
             "completed_subtasks": [str(item) for item in subtasks],
             "artifacts": artifacts,
             "implementation_status": "implemented",
-            "model_notes": response,
+            "model_notes": response[:1400],
         }
         return {
             "agent": "developer",

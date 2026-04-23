@@ -45,8 +45,19 @@ class ReviewerAgent:
         else:
             normalized_code = code if isinstance(code, dict) else {"raw": str(code), "artifacts": []}
 
-        prompt = f"{self.system_prompt}\n\nReview the following code: {normalized_code}"
-        response = self.llm.complete(prompt=prompt)
+        prompt_code = {
+            "objective": normalized_code.get("objective"),
+            "family": normalized_code.get("family"),
+            "implementation_status": normalized_code.get("implementation_status"),
+            "completed_subtasks": normalized_code.get("completed_subtasks") or [],
+            "artifacts": normalized_code.get("artifacts") or [],
+        }
+        prompt = (
+            f"{self.system_prompt}\n\n"
+            f"Review the following implementation summary: {prompt_code}\n"
+            "Return concise findings and verdict."
+        )
+        response = self.llm.complete(prompt=prompt, temperature=0.2, max_tokens=280)
         artifacts = normalized_code.get("artifacts") or []
         approved = bool(artifacts) and normalized_code.get("implementation_status") == "implemented"
         findings = [] if approved else ["La implementacion no aporta artefactos suficientes para aprobarla."]
@@ -54,7 +65,7 @@ class ReviewerAgent:
             "approved": approved,
             "findings": findings,
             "summary": "Review aprobado" if approved else "Review con cambios requeridos",
-            "model_notes": response,
+            "model_notes": response[:1200],
         }
         return {
             "agent": "reviewer",
