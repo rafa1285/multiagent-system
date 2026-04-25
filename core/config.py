@@ -41,3 +41,16 @@ RUN_STATE_DATABASE_URL: str = os.getenv("RUN_STATE_DATABASE_URL", DATABASE_URL).
 RUN_STATE_SQLITE_PATH: str = os.getenv("RUN_STATE_SQLITE_PATH", "data/run_state.db")
 RUN_STAGE_MAX_ATTEMPTS: int = int(os.getenv("RUN_STAGE_MAX_ATTEMPTS", "3"))
 PROJECTS_MAP_PATH: str = os.getenv("PROJECTS_MAP_PATH", "").strip()
+
+# ---------------------------------------------------------------------------
+# Observability provider
+# ---------------------------------------------------------------------------
+OBSERVABILITY_PROVIDER: str = os.getenv("OBSERVABILITY_PROVIDER", "supabase").strip().lower()
+
+# Supabase observability
+SUPABASE_URL: str = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", os.getenv("SUPABASE_KEY", "")).strip()
+SUPABASE_SCHEMA: str = os.getenv("SUPABASE_SCHEMA", "").strip()
+SUPABASE_LOGS_TABLE: str = os.getenv("SUPABASE_LOGS_TABLE", "app_trace_events").strip()
+SUPABASE_HTTP_TIMEOUT: float = float(os.getenv("SUPABASE_HTTP_TIMEOUT", "15"))
+SUPABASE_ENABLE_LOG_WRITE: bool = os.getenv("SUPABASE_ENABLE_LOG_WRITE", "false").lower() == "true"

@@ -21,17 +21,22 @@ Interactive API docs are available at http://localhost:8000/docs once the
 server is running.
 """
 
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Dict, Optional
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agents.planner.router import router as planner_router
 from agents.developer.router import router as developer_router
 from agents.reviewer.router import router as reviewer_router
 from agents.deployer.router import router as deployer_router
+from core import config
 from core.auth import require_api_key
+from core.observability import ObservabilityConfigError, ObservabilityRequestError, insert_log_event
 from core.run_state import ensure_run, get_run, list_runs
 
 app = FastAPI(
@@ -72,6 +77,30 @@ class RunCreateResponse(BaseModel):
     status: str
 
 
+class ObservabilityProbeRequest(BaseModel):
+    run_id: Optional[str] = None
+    step_name: str = "observability.probe.requested"
+    status: str = "started"
+    source_system: str = "multiagent-api"
+
+    # Backward-compatible optional fields
+    stage: str = "probe"
+    level: str = "info"
+    message: str = "observability connectivity probe"
+    source: str = "multiagent-system"
+
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    row: Optional[Dict[str, Any]] = None
+
+
+class ObservabilityProbeResponse(BaseModel):
+    ok: bool
+    status_code: int
+    sink: str
+    inserted: int
+    run_id: Optional[str] = None
+
+
 @app.post("/runs", tags=["Runs"], response_model=RunCreateResponse)
 def create_run(_: None = Depends(require_api_key)) -> RunCreateResponse:
     """Create a new run id for an execution pipeline."""
@@ -92,3 +121,50 @@ def get_run_status(run_id: str, _: None = Depends(require_api_key)) -> dict:
 def list_run_status(limit: int = Query(default=20, ge=1, le=200), _: None = Depends(require_api_key)) -> dict:
     """List recent runs."""
     return {"items": list_runs(limit=limit)}
+
+
+@app.post("/observability/probe", tags=["Observability"], response_model=ObservabilityProbeResponse)
+@app.post("/observability/supabase/probe", tags=["Observability"], response_model=ObservabilityProbeResponse)
+def observability_probe(payload: ObservabilityProbeRequest, _: None = Depends(require_api_key)) -> ObservabilityProbeResponse:
+    """Insert one probe row using the active observability provider."""
+    if not config.SUPABASE_ENABLE_LOG_WRITE:
+        raise HTTPException(
+            status_code=403,
+            detail="Observability write is disabled. Set SUPABASE_ENABLE_LOG_WRITE=true",
+        )
+
+    effective_run_id = payload.run_id or str(uuid4())
+    event = payload.row or {
+        "run_id": effective_run_id,
+        "step_name": payload.step_name,
+        "status": payload.status,
+        "source_system": payload.source_system,
+        "metadata": {
+            "stage": payload.stage,
+            "level": payload.level,
+            "message": payload.message,
+            "source": payload.source,
+            **payload.metadata,
+        },
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        result = insert_log_event(event)
+    except ObservabilityConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ObservabilityRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    inserted_payload = result.get("data")
+    inserted_count = len(inserted_payload) if isinstance(inserted_payload, list) else int(bool(inserted_payload))
+    return ObservabilityProbeResponse(
+        ok=True,
+        status_code=result["status_code"],
+        sink=(
+            f"{config.OBSERVABILITY_PROVIDER}:"
+            f"{(config.SUPABASE_SCHEMA + '.') if config.SUPABASE_SCHEMA else ''}{config.SUPABASE_LOGS_TABLE}"
+        ),
+        inserted=inserted_count,
+        run_id=event.get("run_id"),
+    )

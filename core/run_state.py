@@ -13,6 +13,9 @@ from typing import Any, Dict, Iterator, List, Optional
 from uuid import uuid4
 
 from core.config import RUN_STAGE_MAX_ATTEMPTS, RUN_STATE_DATABASE_URL, RUN_STATE_SQLITE_PATH
+from core import config
+from core.observability import insert_log_event
+from supabase import Client, create_client
 
 try:
     import psycopg
@@ -24,6 +27,78 @@ except ImportError:  # pragma: no cover - handled by runtime dependency
 
 class StageRetryLimitExceededError(RuntimeError):
     """Raised when a stage exceeds its configured retry budget."""
+
+
+_OBS_CLIENT: Optional[Client] = None
+
+
+def _get_observability_client() -> Optional[Client]:
+    global _OBS_CLIENT
+    if _OBS_CLIENT is not None:
+        return _OBS_CLIENT
+    if not config.SUPABASE_URL or not config.SUPABASE_SERVICE_ROLE_KEY:
+        return None
+    try:
+        _OBS_CLIENT = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY)
+    except Exception:
+        return None
+    return _OBS_CLIENT
+
+
+def _ensure_observability_run_row(run_id: str, stage: Optional[str] = None) -> None:
+    if not config.SUPABASE_ENABLE_LOG_WRITE:
+        return
+
+    client = _get_observability_client()
+    if client is None:
+        return
+
+    payload = {
+        "run_id": run_id,
+        "operation_kind": "create",
+        "source_channel": "manual",
+        "requested_at": _now_iso(),
+        "final_status": "running",
+        "metadata": {
+            "source": "run_state",
+            "current_stage": stage,
+        },
+    }
+
+    try:
+        if config.SUPABASE_SCHEMA:
+            client.schema(config.SUPABASE_SCHEMA).table("app_runs").upsert(payload, on_conflict="run_id").execute()
+        else:
+            client.table("app_runs").upsert(payload, on_conflict="run_id").execute()
+    except Exception:
+        return
+
+
+def _emit_trace_event(
+    run_id: str,
+    step_name: str,
+    status: str,
+    metadata: Optional[Dict[str, Any]] = None,
+    source_system: str = "multiagent-api",
+) -> None:
+    """Best-effort observability write for stage lifecycle transitions."""
+    if not config.SUPABASE_ENABLE_LOG_WRITE:
+        return
+
+    event = {
+        "run_id": run_id,
+        "step_name": step_name,
+        "status": status,
+        "source_system": source_system,
+        "metadata": metadata or {},
+        "occurred_at": _now_iso(),
+    }
+    try:
+        _ensure_observability_run_row(run_id, stage=(metadata or {}).get("stage") if isinstance(metadata, dict) else None)
+        insert_log_event(event)
+    except Exception:
+        # Observability should never break core run-state transitions.
+        return
 
 
 def _now_iso() -> str:
@@ -203,6 +278,16 @@ def ensure_run(run_id: Optional[str] = None) -> str:
                 """,
                 [resolved_run_id, "created", now, now, None, None],
             )
+            _emit_trace_event(
+                resolved_run_id,
+                "run.created",
+                "started",
+                {
+                    "status": "created",
+                    "backend": _STORE.backend,
+                    "phase": "created",
+                },
+            )
 
     return resolved_run_id
 
@@ -236,6 +321,18 @@ def start_stage(run_id: Optional[str], stage: str, input_payload: Dict[str, Any]
             session.execute(
                 "UPDATE runs SET updated_at = ?, current_stage = ? WHERE run_id = ?",
                 [now, stage, resolved_run_id],
+            )
+            _emit_trace_event(
+                resolved_run_id,
+                f"{stage}.cached",
+                "started",
+                {
+                    "stage": stage,
+                    "cached": True,
+                    "phase": "completed",
+                    "attempt_number": cached["attempt_number"],
+                    "input_hash": serialized_hash,
+                },
             )
             return {
                 "run_id": resolved_run_id,
@@ -292,6 +389,17 @@ def start_stage(run_id: Optional[str], stage: str, input_payload: Dict[str, Any]
             "UPDATE runs SET status = ?, updated_at = ?, current_stage = ?, last_error = ? WHERE run_id = ?",
             ["running", now, stage, None, resolved_run_id],
         )
+        _emit_trace_event(
+            resolved_run_id,
+            f"{stage}.running",
+            "started",
+            {
+                "stage": stage,
+                "attempt_id": attempt_id,
+                "attempt_number": next_attempt,
+                "input_hash": serialized_hash,
+            },
+        )
 
         return {
             "run_id": resolved_run_id,
@@ -335,6 +443,19 @@ def finish_stage_success(run_id: str, stage: str, attempt_id: str, output_payloa
             "UPDATE runs SET status = ?, updated_at = ?, current_stage = ?, last_error = ? WHERE run_id = ?",
             [run_status, now, stage, None, run_id],
         )
+        _emit_trace_event(
+            run_id,
+            f"{stage}.completed",
+            "started",
+            {
+                "stage": stage,
+                "attempt_id": attempt_id,
+                "attempt_number": attempt["attempt_number"],
+                "run_status": run_status,
+                "phase": "completed",
+                "outcome": "success",
+            },
+        )
 
 
 def finish_stage_error(run_id: str, stage: str, attempt_id: str, error: str) -> None:
@@ -368,6 +489,17 @@ def finish_stage_error(run_id: str, stage: str, attempt_id: str, error: str) -> 
             "UPDATE runs SET status = ?, updated_at = ?, current_stage = ?, last_error = ? WHERE run_id = ?",
             ["error", now, stage, error, run_id],
         )
+        _emit_trace_event(
+            run_id,
+            f"{stage}.completed",
+            "failed",
+            {
+                "stage": stage,
+                "attempt_id": attempt_id,
+                "attempt_number": attempt["attempt_number"],
+                "error": error,
+            },
+        )
 
 
 def set_run_status(run_id: str, status: str, current_stage: Optional[str] = None, error: Optional[str] = None) -> None:
@@ -378,6 +510,17 @@ def set_run_status(run_id: str, status: str, current_stage: Optional[str] = None
             "UPDATE runs SET status = ?, updated_at = ?, current_stage = ?, last_error = ? WHERE run_id = ?",
             [status, now, current_stage, error, run_id],
         )
+    _emit_trace_event(
+        run_id,
+        "run.status.updated",
+        "started",
+        {
+            "status": status,
+            "current_stage": current_stage,
+            "error": error,
+            "phase": "status_update",
+        },
+    )
 
 
 def get_run(run_id: str) -> Optional[Dict[str, Any]]:
