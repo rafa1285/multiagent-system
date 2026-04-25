@@ -1,3 +1,8 @@
+> Historical note
+> This file is a milestone snapshot and not the canonical workspace context.
+> Canonical context package: `../orchestrator/docs/START_HERE.md`
+> Consolidated historical snapshot: `../orchestrator/docs/history/2026-04-23-pipeline-e2e-deployment.md`
+
 # 🎯 Estado Final: Implementación Completa del Pipeline E2E
 
 ## ✅ Lo Que Se Implementó

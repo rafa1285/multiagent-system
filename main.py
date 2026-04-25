@@ -37,7 +37,7 @@ from agents.deployer.router import router as deployer_router
 from core import config
 from core.auth import require_api_key
 from core.observability import ObservabilityConfigError, ObservabilityRequestError, insert_log_event
-from core.run_state import ensure_run, get_run, list_runs
+from core.run_state import ensure_run, get_run, get_run_trace, list_runs
 
 app = FastAPI(
     title="Multi-Agent System",
@@ -115,6 +115,20 @@ def get_run_status(run_id: str, _: None = Depends(require_api_key)) -> dict:
     if not run:
         raise HTTPException(status_code=404, detail=f"run_id not found: {run_id}")
     return run
+
+
+@app.get("/runs/{run_id}/trace", tags=["Runs"])
+def get_run_trace_endpoint(run_id: str, _: None = Depends(require_api_key)) -> dict:
+    """
+    Return the full traceability document for a run.
+
+    Includes all external IDs (Jira issue, GitHub commit, deployment URL),
+    complete pipeline event timeline, and audit log.
+    """
+    trace = get_run_trace(run_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail=f"run_id not found: {run_id}")
+    return trace
 
 
 @app.get("/runs", tags=["Runs"])

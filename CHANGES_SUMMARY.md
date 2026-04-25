@@ -1,3 +1,8 @@
+> Historical note
+> This file is a milestone snapshot and not the canonical workspace context.
+> Canonical context package: `../orchestrator/docs/START_HERE.md`
+> Consolidated historical snapshot: `../orchestrator/docs/history/2026-04-23-pipeline-e2e-deployment.md`
+
 ## 🎉 ¡Implementación Exitosa!
 
 He completado la capa de despliegue que faltaba. Ahora el pipeline es **completamente funcional y produce aplicaciones reales con URL pública.**

@@ -289,9 +289,11 @@ def _create_github_repo(repo_name: str, code_artifact: str = "") -> Dict[str, An
             ssh_url = data.get("ssh_url")
             clone_url = data.get("clone_url")
 
+            commit_sha = None
             # If code artifact provided, commit it
             if code_artifact and clone_url:
-                _commit_to_repo(repo_url, clone_url, code_artifact, token)
+                commit_result = _commit_to_repo(repo_url, clone_url, code_artifact, token)
+                commit_sha = commit_result.get("commit_sha")
 
             return {
                 "attempted": True,
@@ -299,6 +301,7 @@ def _create_github_repo(repo_name: str, code_artifact: str = "") -> Dict[str, An
                 "repo_name": repo_name,
                 "repo_url": repo_url,
                 "clone_url": clone_url,
+                "commit_sha": commit_sha,
                 "api_url": data.get("url"),
                 "status_code": response.status_code,
             }
@@ -307,6 +310,7 @@ def _create_github_repo(repo_name: str, code_artifact: str = "") -> Dict[str, An
             "attempted": True,
             "created": False,
             "repo_name": repo_name,
+            "commit_sha": None,
             "status_code": response.status_code,
             "error": response.text[:200],
             "repo_url": None,
@@ -316,13 +320,14 @@ def _create_github_repo(repo_name: str, code_artifact: str = "") -> Dict[str, An
             "attempted": True,
             "created": False,
             "repo_name": repo_name,
+            "commit_sha": None,
             "error": str(e),
             "repo_url": None,
         }
 
 
 def _commit_to_repo(repo_url: str, clone_url: str, code_artifact: str, token: str) -> Dict[str, Any]:
-    """Clone repo, commit code, and push."""
+    """Clone repo, commit code, push, and return commit SHA."""
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Clone repo
@@ -334,7 +339,7 @@ def _commit_to_repo(repo_url: str, clone_url: str, code_artifact: str, token: st
                 text=True,
             )
             if result.returncode != 0:
-                return {"success": False, "error": result.stderr}
+                return {"success": False, "error": result.stderr, "commit_sha": None}
 
             # Create main code file
             code_file = Path(tmpdir) / "app.py"
@@ -355,12 +360,22 @@ def _commit_to_repo(repo_url: str, clone_url: str, code_artifact: str, token: st
                 timeout=30,
                 text=True,
             )
+            commit_sha = None
             if result.returncode == 0:
-                subprocess.run(["git", "push", "-u", "origin", "main"], cwd=tmpdir, check=False)
+                push_result = subprocess.run(["git", "push", "-u", "origin", "main"], cwd=tmpdir, check=False)
+                # Capture the commit SHA
+                sha_result = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=tmpdir,
+                    capture_output=True,
+                    text=True,
+                )
+                if sha_result.returncode == 0:
+                    commit_sha = sha_result.stdout.strip()
 
-        return {"success": True}
+        return {"success": True, "commit_sha": commit_sha}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": str(e), "commit_sha": None}
 
 
 def _deploy_to_render(repo_url: str, repo_name: str) -> Dict[str, Any]:
@@ -426,6 +441,132 @@ def _deploy_to_render(repo_url: str, repo_name: str) -> Dict[str, Any]:
         }
 
 
+def _notify_jira(
+    run_id: str,
+    jira_issue_key: str,
+    jira_base_url: str,
+    jira_email: str,
+    jira_api_token: str,
+    deployment_url: Optional[str],
+    git_repo_url: Optional[str],
+    git_commit_sha: Optional[str],
+    objective: str,
+) -> Dict[str, Any]:
+    """Create or update a Jira issue with run traceability data.
+
+    - If jira_issue_key is provided: add comment + transition to Done.
+    - If no issue_key: create a new issue with all the data.
+    Returns dict with fields: jira_issue_key, jira_issue_url, action.
+    """
+    # Fall back to env-level credentials if not provided in request
+    effective_base = (jira_base_url or os.getenv("JIRA_BASE_URL", "")).strip().rstrip("/")
+    effective_email = (jira_email or os.getenv("JIRA_EMAIL", "")).strip()
+    effective_token = (jira_api_token or os.getenv("JIRA_API_TOKEN", "")).strip()
+
+    if not effective_base or not effective_email or not effective_token:
+        return {
+            "attempted": False,
+            "reason": "Jira credentials not configured",
+            "jira_issue_key": jira_issue_key or None,
+            "jira_issue_url": None,
+        }
+
+    import base64
+    auth = base64.b64encode(f"{effective_email}:{effective_token}".encode()).decode()
+    headers = {
+        "Authorization": f"Basic {auth}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    def _doc(text: str) -> dict:
+        return {
+            "type": "doc",
+            "version": 1,
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}],
+        }
+
+    comment_lines = [
+        f"Run ID: {run_id}",
+        f"Status: COMPLETED",
+        f"Deployment URL: {deployment_url or 'N/A'}",
+        f"GitHub Repo: {git_repo_url or 'N/A'}",
+        f"Commit SHA: {git_commit_sha or 'N/A'}",
+        f"Objective: {objective}",
+    ]
+    comment_text = "\n".join(comment_lines)
+
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            resolved_key = jira_issue_key.strip() if jira_issue_key else ""
+
+            # If no key provided, create a new issue
+            if not resolved_key:
+                project_key = os.getenv("JIRA_PROJECT_KEY", "MAS")
+                create_payload = {
+                    "fields": {
+                        "project": {"key": project_key},
+                        "summary": f"[Auto] {objective[:100]}",
+                        "description": _doc(comment_text),
+                        "issuetype": {"name": "Task"},
+                        "labels": ["auto-generated", "multiagent-pipeline"],
+                    }
+                }
+                r = client.post(f"{effective_base}/rest/api/3/issue", headers=headers, json=create_payload)
+                if r.status_code in {200, 201}:
+                    data = r.json()
+                    resolved_key = data.get("key", "")
+                    issue_url = f"{effective_base}/browse/{resolved_key}" if resolved_key else None
+                    return {
+                        "attempted": True,
+                        "action": "created",
+                        "jira_issue_key": resolved_key,
+                        "jira_issue_url": issue_url,
+                    }
+                return {
+                    "attempted": True,
+                    "action": "create_failed",
+                    "jira_issue_key": None,
+                    "jira_issue_url": None,
+                    "error": r.text[:200],
+                }
+
+            # Add completion comment to existing issue
+            comment_payload = {"body": _doc(comment_text)}
+            client.post(f"{effective_base}/rest/api/3/issue/{resolved_key}/comment", headers=headers, json=comment_payload)
+
+            # Try to transition to Done (transition id 31 = Done in standard workflows)
+            trans_r = client.get(f"{effective_base}/rest/api/3/issue/{resolved_key}/transitions", headers=headers)
+            if trans_r.status_code == 200:
+                transitions = trans_r.json().get("transitions", [])
+                done_id = next(
+                    (t["id"] for t in transitions if t.get("name", "").lower() in {"done", "closed", "resolved"}),
+                    None,
+                )
+                if done_id:
+                    client.post(
+                        f"{effective_base}/rest/api/3/issue/{resolved_key}/transitions",
+                        headers=headers,
+                        json={"transition": {"id": done_id}},
+                    )
+
+            issue_url = f"{effective_base}/browse/{resolved_key}"
+            return {
+                "attempted": True,
+                "action": "updated",
+                "jira_issue_key": resolved_key,
+                "jira_issue_url": issue_url,
+            }
+    except Exception as e:
+        return {
+            "attempted": True,
+            "action": "error",
+            "jira_issue_key": jira_issue_key or None,
+            "jira_issue_url": None,
+            "error": str(e),
+        }
+
+
 class DeployerAgent:
     """Implement real Deployer agent with GitHub + Render integration."""
 
@@ -433,14 +574,20 @@ class DeployerAgent:
         self.llm = llm
         self.system_prompt = _load_system_prompt()
 
-    def run(self, review: Any, run_id: Optional[str] = None) -> dict:
+    def run(
+        self,
+        review: Any,
+        run_id: Optional[str] = None,
+        jira_issue_key: str = "",
+        jira_base_url: str = "",
+        jira_email: str = "",
+        jira_api_token: str = "",
+    ) -> dict:
         """
         Receive the *review* artefact from the Reviewer and deploy the code.
 
-        Real implementation: create GitHub repo, commit code, deploy to Render.
-
-        :param review: Review output produced by the ReviewerAgent.
-        :returns: A dict containing the deployment status, repo URL, and service URL.
+        Real implementation: create GitHub repo, commit code, deploy to Render,
+        notify Jira, and return external_ids for unified traceability.
         """
         if isinstance(review, str):
             try:
@@ -455,39 +602,52 @@ class DeployerAgent:
         # Extract code from review
         code_data = normalized_review.get("code", {}) if isinstance(normalized_review.get("code"), dict) else {}
         code_artifact = code_data.get("implementation", "") or code_data.get("code", "")
+        objective = str(code_data.get("objective", "Generated App"))
 
         github_repo = None
         render_service = None
         deployment_url = None
+        git_commit_sha = None
+        git_repo_url = None
 
         # Only deploy if approved
         if approved:
             repo_name = _build_repo_name(normalized_review)
 
-            # Step 1: Create GitHub repo
+            # Step 1: Create GitHub repo + commit code
             github_repo = _create_github_repo(repo_name, code_artifact)
+            git_repo_url = github_repo.get("repo_url")
+            git_commit_sha = github_repo.get("commit_sha")
 
             # Step 2: Deploy to Render if repo was created
-            if github_repo.get("created") and github_repo.get("repo_url"):
-                render_service = _deploy_to_render(github_repo["repo_url"], repo_name)
+            if github_repo.get("created") and git_repo_url:
+                render_service = _deploy_to_render(git_repo_url, repo_name)
                 deployment_url = render_service.get("service_url")
 
-            # Guaranteed fallback materialization inside current service.
+            # Guaranteed fallback materialization inside current service
             if not deployment_url:
                 fallback = _materialize_generated_app(run_id or "", normalized_review)
                 render_service = fallback
                 deployment_url = fallback.get("service_url")
 
+        # Step 3: Notify Jira (create or update issue)
+        jira_result = _notify_jira(
+            run_id=run_id or "",
+            jira_issue_key=jira_issue_key,
+            jira_base_url=jira_base_url,
+            jira_email=jira_email,
+            jira_api_token=jira_api_token,
+            deployment_url=deployment_url,
+            git_repo_url=git_repo_url,
+            git_commit_sha=git_commit_sha,
+            objective=objective,
+        )
+
         # Generate LLM summary
-        prompt_review = {
-            "approved": approved,
-            "summary": normalized_review.get("summary"),
-            "findings": normalized_review.get("findings") or [],
-        }
         prompt = (
             f"{self.system_prompt}\n\n"
             f"Deployment result for approved={approved}. "
-            f"GitHub repo: {github_repo.get('repo_url') if github_repo else 'pending'}. "
+            f"GitHub repo: {git_repo_url or 'pending'}. "
             f"Render service: {deployment_url or 'pending'}.\n"
             "Keep output concise."
         )
@@ -504,9 +664,19 @@ class DeployerAgent:
             "model_notes": response[:1000],
         }
 
+        # Build unified external_ids for traceability
+        external_ids = {
+            "deployment_url": deployment_url,
+            "git_repo_url": git_repo_url,
+            "git_commit_sha": git_commit_sha,
+            "jira_issue_key": jira_result.get("jira_issue_key"),
+            "jira_issue_url": jira_result.get("jira_issue_url"),
+        }
+
         return {
             "agent": "deployer",
             "review": normalized_review,
             "deployment": json.dumps(deployment_payload, ensure_ascii=True),
             "status": status,
+            "external_ids": external_ids,
         }

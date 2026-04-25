@@ -8,7 +8,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import RLock
+from threading import RLock, Thread
 from typing import Any, Dict, Iterator, List, Optional
 from uuid import uuid4
 
@@ -81,7 +81,11 @@ def _emit_trace_event(
     metadata: Optional[Dict[str, Any]] = None,
     source_system: str = "multiagent-api",
 ) -> None:
-    """Best-effort observability write for stage lifecycle transitions."""
+    """Best-effort observability write for stage lifecycle transitions.
+    
+    Runs asynchronously in a background thread with timeout to avoid
+    blocking the main request. Falls back to local file if Supabase fails.
+    """
     if not config.SUPABASE_ENABLE_LOG_WRITE:
         return
 
@@ -93,12 +97,26 @@ def _emit_trace_event(
         "metadata": metadata or {},
         "occurred_at": _now_iso(),
     }
-    try:
-        _ensure_observability_run_row(run_id, stage=(metadata or {}).get("stage") if isinstance(metadata, dict) else None)
-        insert_log_event(event)
-    except Exception:
-        # Observability should never break core run-state transitions.
-        return
+    
+    # Write asynchronously in background thread to avoid blocking
+    def _write_event():
+        try:
+            # Ensure run row exists
+            _ensure_observability_run_row(run_id, stage=(metadata or {}).get("stage") if isinstance(metadata, dict) else None)
+            # Write event to Supabase with timeout
+            insert_log_event(event)
+        except Exception as exc:
+            # Fallback: write to local trace file for debugging
+            try:
+                trace_file = Path("data") / "trace_events.jsonl"
+                trace_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(trace_file, "a") as f:
+                    f.write(json.dumps(event) + "\n")
+            except Exception:
+                pass  # Silent fail - observability should never break core operations
+    
+    thread = Thread(target=_write_event, daemon=True)
+    thread.start()
 
 
 def _now_iso() -> str:
@@ -236,6 +254,11 @@ class _DatabaseStore:
                 session = _Session(connection, self.backend)
                 for statement in statements:
                     session.execute(statement)
+                # Migration: add external_ids column if not already present
+                try:
+                    session.execute("ALTER TABLE runs ADD COLUMN external_ids TEXT DEFAULT NULL")
+                except Exception:
+                    pass  # Column already exists
                 connection.commit()
             finally:
                 connection.close()
@@ -593,6 +616,95 @@ def get_run(run_id: str) -> Optional[Dict[str, Any]]:
         "last_error": run["last_error"],
         "stages": stage_summaries,
         "events": normalized_events,
+    }
+
+
+def update_run_external_ids(run_id: str, external_ids: Dict[str, Any]) -> None:
+    """Persist external integration IDs (Jira, GitHub, deployment) linked to a run."""
+    now = _now_iso()
+    serialized = _json_dumps(external_ids)
+    with _STORE._lock, _STORE.session() as session:
+        session.execute(
+            "UPDATE runs SET external_ids = ?, updated_at = ? WHERE run_id = ?",
+            [serialized, now, run_id],
+        )
+
+
+def get_run_trace(run_id: str) -> Optional[Dict[str, Any]]:
+    """Return the full traceability document for a run, including all external IDs."""
+    with _STORE.session() as session:
+        run = session.fetchone(
+            "SELECT run_id, status, created_at, updated_at, current_stage, last_error, external_ids FROM runs WHERE run_id = ?",
+            [run_id],
+        )
+        if run is None:
+            return None
+
+        events = session.fetchall(
+            """
+            SELECT stage, attempt_number, status, error, created_at
+            FROM run_events WHERE run_id = ? ORDER BY created_at ASC
+            """,
+            [run_id],
+        )
+        attempts = session.fetchall(
+            """
+            SELECT stage, attempt_number, status, created_at, updated_at, error
+            FROM stage_attempts WHERE run_id = ? ORDER BY stage ASC, attempt_number DESC
+            """,
+            [run_id],
+        )
+
+    external_ids = _json_loads(run.get("external_ids")) or {}
+
+    stage_summaries: Dict[str, Any] = {}
+    for attempt in attempts:
+        stage_name = attempt["stage"]
+        if stage_name not in stage_summaries:
+            stage_summaries[stage_name] = {
+                "status": attempt["status"],
+                "started_at": attempt["created_at"],
+                "completed_at": attempt["updated_at"],
+                "attempt_number": attempt["attempt_number"],
+                "error": attempt["error"],
+            }
+
+    return {
+        "run_id": run["run_id"],
+        "status": run["status"],
+        "created_at": run["created_at"],
+        "completed_at": run["updated_at"],
+        "current_stage": run["current_stage"],
+        "last_error": run["last_error"],
+        "external_ids": {
+            "jira_issue_key": external_ids.get("jira_issue_key"),
+            "jira_issue_url": external_ids.get("jira_issue_url"),
+            "git_commit_sha": external_ids.get("git_commit_sha"),
+            "git_repo_url": external_ids.get("git_repo_url"),
+            "git_pr_url": external_ids.get("git_pr_url"),
+            "deployment_url": external_ids.get("deployment_url"),
+        },
+        "pipeline": {
+            "stages_completed": len([s for s in stage_summaries.values() if s["status"] == "success"]),
+            "stages": stage_summaries,
+            "events": [
+                {
+                    "at": e["created_at"],
+                    "stage": e["stage"],
+                    "status": e["status"],
+                    "error": e["error"],
+                }
+                for e in events
+            ],
+        },
+        "audit_log": [
+            {
+                "timestamp": e["created_at"],
+                "event": f"{e['stage']}.{e['status']}",
+                "detail": e["error"] or "",
+            }
+            for e in events
+        ],
     }
 
 

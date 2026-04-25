@@ -43,6 +43,22 @@ RUN_STAGE_MAX_ATTEMPTS: int = int(os.getenv("RUN_STAGE_MAX_ATTEMPTS", "3"))
 PROJECTS_MAP_PATH: str = os.getenv("PROJECTS_MAP_PATH", "").strip()
 
 # ---------------------------------------------------------------------------
+# GitHub integration
+# ---------------------------------------------------------------------------
+GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "").strip()
+GITHUB_OWNER: str = os.getenv("GITHUB_OWNER", "").strip()
+GITHUB_API_BASE: str = os.getenv("GITHUB_API_BASE", "https://api.github.com").strip().rstrip("/")
+GITHUB_CREATE_IN_ORG: bool = os.getenv("GITHUB_CREATE_IN_ORG", "false").lower() == "true"
+
+# ---------------------------------------------------------------------------
+# Jira integration
+# ---------------------------------------------------------------------------
+JIRA_BASE_URL: str = os.getenv("JIRA_BASE_URL", "").strip().rstrip("/")
+JIRA_EMAIL: str = os.getenv("JIRA_EMAIL", "").strip()
+JIRA_API_TOKEN: str = os.getenv("JIRA_API_TOKEN", "").strip()
+JIRA_PROJECT_KEY: str = os.getenv("JIRA_PROJECT_KEY", "MAS").strip()
+
+# ---------------------------------------------------------------------------
 # Observability provider
 # ---------------------------------------------------------------------------
 OBSERVABILITY_PROVIDER: str = os.getenv("OBSERVABILITY_PROVIDER", "supabase").strip().lower()

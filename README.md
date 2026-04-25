@@ -20,6 +20,22 @@ n8n  →  POST /agents/planner
      →  POST /agents/deployer
 ```
 
+## Workspace Context (Canonical)
+
+This README documents the `multiagent-system` service itself.
+
+For cross-repo architecture, operational status, and runbooks across the full
+workspace, use the central context package in:
+
+- `../orchestrator/docs/START_HERE.md`
+
+Canonical docs there:
+- `SYSTEM_OVERVIEW.md`
+- `ARCHITECTURE.md`
+- `CURRENT_STATE.md`
+- `OPERATIONS_RUNBOOK.md`
+- `DECISIONS.md`
+
 ---
 
 ## Agents

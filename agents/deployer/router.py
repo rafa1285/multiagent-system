@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 from agents.deployer.agent import DeployerAgent
 from core.auth import require_api_key
-from core.run_state import StageRetryLimitExceededError, finish_stage_error, finish_stage_success, start_stage
+from core.run_state import StageRetryLimitExceededError, finish_stage_error, finish_stage_success, start_stage, update_run_external_ids
 from providers import get_llm_provider
 
 router = APIRouter(prefix="/agents/deployer", tags=["Deployer"], dependencies=[Depends(require_api_key)])
@@ -24,6 +24,11 @@ class DeployerRequest(BaseModel):
 
     review: Any  # Review output produced by the ReviewerAgent.
     run_id: Optional[str] = None
+    # Optional Jira context for automatic traceability
+    jira_issue_key: Optional[str] = None
+    jira_base_url: Optional[str] = None
+    jira_email: Optional[str] = None
+    jira_api_token: Optional[str] = None
 
 
 class DeployerResponse(BaseModel):
@@ -59,7 +64,14 @@ def run_deployer(request: DeployerRequest) -> DeployerResponse:
     llm = get_llm_provider()
     agent = DeployerAgent(llm=llm)
     try:
-        result = agent.run(review=request.review, run_id=run_id)
+        result = agent.run(
+            review=request.review,
+            run_id=run_id,
+            jira_issue_key=request.jira_issue_key or "",
+            jira_base_url=request.jira_base_url or "",
+            jira_email=request.jira_email or "",
+            jira_api_token=request.jira_api_token or "",
+        )
     except Exception as exc:
         finish_stage_error(run_id, "deployer", attempt["attempt_id"], str(exc))
         raise HTTPException(
@@ -69,4 +81,10 @@ def run_deployer(request: DeployerRequest) -> DeployerResponse:
 
     result["run_id"] = run_id
     finish_stage_success(run_id, "deployer", attempt["attempt_id"], result)
-    return DeployerResponse(**result)
+
+    # Persist external IDs (GitHub, Jira, deployment URL) for unified trace
+    external_ids = result.get("external_ids") or {}
+    if external_ids:
+        update_run_external_ids(run_id, external_ids)
+
+    return DeployerResponse(**{k: v for k, v in result.items() if k in DeployerResponse.model_fields})
