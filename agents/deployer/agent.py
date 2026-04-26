@@ -240,7 +240,8 @@ def _build_repo_name(review: Dict[str, Any], run_id: str = "") -> str:
     code = review.get("code") if isinstance(review.get("code"), dict) else {}
     objective = str(code.get("objective", ""))
     lowered = objective.lower()
-    suffix = f"-{run_id[:8]}" if run_id else ""
+    normalized_run_id = "".join(ch for ch in run_id.lower() if ch.isalnum())
+    suffix = f"-{normalized_run_id[-10:]}" if normalized_run_id else ""
     if "create_project" in lowered and "backend" in lowered:
         return f"generated-backend-service{suffix}"
     if "login" in lowered and "crud" in lowered:
