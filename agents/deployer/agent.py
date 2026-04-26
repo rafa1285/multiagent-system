@@ -132,8 +132,8 @@ def _render_login_crud_html(title: str) -> str:
 
         function validate(c) {{
             if(!c.name || c.name.length < 2) return 'Nombre invalido';
-            if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.email)) return 'Email invalido';
-            if(!/^\+?[0-9\-\s]{7,20}$/.test(c.phone)) return 'Telefono invalido';
+            if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(c.email)) return 'Email invalido';
+            if(!/^\\+?[0-9\\-\\s]{7,20}$/.test(c.phone)) return 'Telefono invalido';
             if(!c.city) return 'Ciudad obligatoria';
             return '';
         }}
@@ -236,15 +236,16 @@ def _extract_task_id(review: Dict[str, Any]) -> str:
     return ""
 
 
-def _build_repo_name(review: Dict[str, Any]) -> str:
+def _build_repo_name(review: Dict[str, Any], run_id: str = "") -> str:
     code = review.get("code") if isinstance(review.get("code"), dict) else {}
     objective = str(code.get("objective", ""))
     lowered = objective.lower()
+    suffix = f"-{run_id[:8]}" if run_id else ""
     if "create_project" in lowered and "backend" in lowered:
-        return "generated-backend-service"
+        return f"generated-backend-service{suffix}"
     if "login" in lowered and "crud" in lowered:
-        return "generated-login-crud-app"
-    return f"generated-app-{hash(objective) % 10000}"
+        return f"generated-login-crud-app{suffix}"
+    return f"generated-app-{hash(objective) % 10000}{suffix}"
 
 
 def _create_github_repo(repo_name: str, code_artifact: str = "") -> Dict[str, Any]:
@@ -288,12 +289,18 @@ def _create_github_repo(repo_name: str, code_artifact: str = "") -> Dict[str, An
             repo_url = data.get("html_url")
             ssh_url = data.get("ssh_url")
             clone_url = data.get("clone_url")
+            owner_login = ((data.get("owner") or {}).get("login") or "").strip()
+            default_branch = str(data.get("default_branch") or "main").strip() or "main"
 
             commit_sha = None
             # If code artifact provided, commit it
             if code_artifact and clone_url:
                 commit_result = _commit_to_repo(repo_url, clone_url, code_artifact, token)
                 commit_sha = commit_result.get("commit_sha")
+
+            # Fallback: read HEAD SHA from GitHub API so traceability always has a commit id
+            if not commit_sha and owner_login:
+                commit_sha = _get_repo_head_sha(api_base, headers, owner_login, repo_name, default_branch)
 
             return {
                 "attempted": True,
@@ -376,6 +383,21 @@ def _commit_to_repo(repo_url: str, clone_url: str, code_artifact: str, token: st
         return {"success": True, "commit_sha": commit_sha}
     except Exception as e:
         return {"success": False, "error": str(e), "commit_sha": None}
+
+
+def _get_repo_head_sha(api_base: str, headers: Dict[str, str], owner: str, repo_name: str, branch: str) -> Optional[str]:
+    """Fetch the current HEAD commit SHA for a repository branch."""
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            r = client.get(
+                f"{api_base}/repos/{owner}/{repo_name}/commits/{branch}",
+                headers=headers,
+            )
+        if r.status_code == 200:
+            return str((r.json() or {}).get("sha") or "").strip() or None
+    except Exception:
+        return None
+    return None
 
 
 def _deploy_to_render(repo_url: str, repo_name: str) -> Dict[str, Any]:
@@ -612,7 +634,7 @@ class DeployerAgent:
 
         # Only deploy if approved
         if approved:
-            repo_name = _build_repo_name(normalized_review)
+            repo_name = _build_repo_name(normalized_review, run_id or "")
 
             # Step 1: Create GitHub repo + commit code
             github_repo = _create_github_repo(repo_name, code_artifact)
